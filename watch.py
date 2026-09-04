@@ -596,6 +596,8 @@ def send_telegram(items, max_send):
 def send_startup_notice(con, mode, cfg, watched):
     """
     mode:
+      'always'= kirim tanpa syarat. Dipakai oleh hook systemd, supaya pesan terkirim
+                tepat saat gateway menyala -- bukan menunggu tick cron berikutnya.
       'once'  = sekali seumur seen.db
       'daily' = sekali tiap hari kalender
       angka   = kirim bila jeda sejak run terakhir melebihi sekian menit.
@@ -609,7 +611,9 @@ def send_startup_notice(con, mode, cfg, watched):
     prev = get_state(con, "startup_notice")
     alasan = ""
 
-    if mode == "once":
+    if mode == "always":
+        alasan = "gateway menyala"
+    elif mode == "once":
         if prev:
             return False
         alasan = "pemasangan pertama"
@@ -639,8 +643,9 @@ def send_startup_notice(con, mode, cfg, watched):
     aktif = [v.get("label", k) for k, v in cfg["sources"].items() if v.get("enabled")]
     topik = [k for k, v in cfg["topics"].items() if v.get("enabled")]
     jam = datetime.now(WIB).strftime("%H:%M")
+    pantau = f"{watched} item dipantau · " if watched else ""
     text = (f"\u2705 <b>Radar saham aktif</b>\n"
-            f"<i>{jam} WIB · {watched} item dipantau · {htmllib.escape(alasan)}</i>\n\n"
+            f"<i>{jam} WIB · {pantau}{htmllib.escape(alasan)}</i>\n\n"
             f"<b>Sumber</b> ({len(aktif)}): {htmllib.escape(', '.join(aktif)) or '-'}\n"
             f"<b>Topik</b> ({len(topik)}): {htmllib.escape(', '.join(topik)) or 'tanpa filter'}")
     try:
@@ -701,6 +706,8 @@ def main():
     ap.add_argument("--limit", type=int, default=None, help="maks item per run (default dari config)")
     ap.add_argument("--empty-notice", metavar="MODE", default=None,
                     help="kirim 'tidak ada berita baru' saat kosong: 'always' atau jumlah menit hening")
+    ap.add_argument("--announce", action="store_true",
+                    help="hanya kirim pesan 'radar saham aktif' lalu keluar (dipakai hook systemd)")
     ap.add_argument("--startup-notice", metavar="MODE", default=None,
                     help="kirim 'radar saham aktif': 'once', 'daily', atau jumlah menit jeda "
                          "yang dianggap sebagai job menyala lagi (mis. 15)")
@@ -720,6 +727,12 @@ def main():
         if did_toggle:
             print()
         show_status(cfg)
+        return 0
+
+    if args.announce:
+        con = db()
+        ok = send_startup_notice(con, "always", cfg, watched=0)
+        print(json.dumps({"announced": ok}, ensure_ascii=False))
         return 0
 
     limit = args.limit if args.limit is not None else int(cfg["options"].get("max_per_run", 15))

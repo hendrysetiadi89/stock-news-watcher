@@ -58,6 +58,8 @@ sehingga tidak menghabiskan kuota model dan tetap bekerja meski autentikasi prov
 | `~/.hermes/skills/stock-news-watcher/seen.db` | riwayat berita yang sudah dikirim |
 | `~/.hermes/skills/stock-news-watcher/SKILL.md` | instruksi untuk mode agent |
 | `~/.hermes/scripts/stock-news.sh` | pembungkus yang dipanggil cron |
+| `~/.config/systemd/user/hermes-gateway.service.d/announce.conf` | hook pengumuman "radar aktif" |
+| `%USERPROFILE%\.hermes\hermes-hold.vbs` | penahan VM WSL2 (sisi Windows) |
 | `~/.hermes/logs/stock-news-watcher.log` | log jalannya program |
 | `~/.hermes/.env` | token Telegram |
 
@@ -160,18 +162,21 @@ Harus terlihat `TELEGRAM_BOT_TOKEN` dan `TELEGRAM_ALLOWED_USERS`. Kalau
 
 ### 3.7 Pasang berkas aplikasi — *Ubuntu*
 
-Salin folder `stock-news-watcher` ke `~/.hermes/skills/`, lalu buat pembungkus untuk cron:
+Kloning repo ini ke lokasi kerjanya, lalu pasang pembungkus cron dan hook pengumuman:
 
 ```bash
+git clone <url-repo> ~/.hermes/skills/stock-news-watcher
+cd ~/.hermes/skills/stock-news-watcher
+
+# pembungkus yang dipanggil cron
 mkdir -p ~/.hermes/scripts
-cat > ~/.hermes/scripts/stock-news.sh <<'SH'
-#!/bin/bash
-LOG="$HOME/.hermes/logs/stock-news-watcher.log"
-mkdir -p "$(dirname "$LOG")"
-exec python3 "$HOME/.hermes/skills/stock-news-watcher/watch.py" \
-  --telegram --limit 100 --empty-notice 60 >/dev/null 2>>"$LOG"
-SH
+cp stock-news.sh ~/.hermes/scripts/
 chmod +x ~/.hermes/scripts/stock-news.sh
+
+# hook: umumkan "radar saham aktif" setiap gateway menyala
+mkdir -p ~/.config/systemd/user/hermes-gateway.service.d
+cp systemd/announce.conf ~/.config/systemd/user/hermes-gateway.service.d/
+systemctl --user daemon-reload
 ```
 
 ### 3.8 Seed — *Ubuntu*, sekali saja
@@ -334,6 +339,38 @@ mv -f seen.db.hold seen.db
 Database dedup disingkirkan sementara sehingga semua berita dianggap baru, tiga di antaranya
 dikirim, lalu database asli dikembalikan agar tidak ada berita terkirim dua kali.
 
+### Notifikasi "radar saham aktif"
+
+Dikirim **setiap kali gateway menyala** — saat WSL boot, saat `hermes gateway restart`,
+atau saat systemd menghidupkannya kembali setelah crash. Pemicunya bukan cron, melainkan
+`ExecStartPost` pada `hermes-gateway.service` (lihat `systemd/announce.conf`), sehingga
+pesannya datang seketika dan tidak perlu menunggu tick berikutnya.
+
+```
+✅ Radar saham aktif
+16:14 WIB · gateway menyala
+
+Sumber (2): IDN Financials, IDX Keterbukaan Informasi
+Topik (5): ihsg_dan_pasar, aksi_korporasi, kinerja_keuangan, aliran_dana_asing, makro_dan_moneter
+```
+
+Hook itu memanggil `watch.py --telegram --announce`, yang hanya mengirim pesan lalu keluar
+tanpa mengambil data dari kelima situs — supaya start-up gateway tidak tertunda.
+
+Dua pengaman pada hook: awalan `-` pada `ExecStartPost` membuat kegagalan diabaikan
+(gateway tetap dianggap berhasil start walau Telegram tak terjangkau), dan `timeout 60`
+mencegah hook menggantung proses start-up.
+
+Menguji tanpa reboot:
+
+```bash
+hermes gateway restart
+```
+
+`watch.py` juga punya `--startup-notice` dengan mode `always`, `once`, `daily`, atau angka
+menit jeda. Itu jalur alternatif lewat cron dan **tidak dipakai** pada setup ini —
+pengumuman ditangani hook systemd supaya tidak ada dua sumber yang saling menimpa.
+
 ### Notifikasi saat tidak ada berita
 
 `--empty-notice` punya dua mode:
@@ -452,14 +489,28 @@ Buka **Task Scheduler** (`taskschd.msc`) → **Create Task**:
 |---|---|
 | General | Nama `Hermes Gateway (WSL)`; pilih **Run only when user is logged on**; **jangan** centang *Run with highest privileges* |
 | Triggers | **At log on** → akun Anda → *Delay task for* **30 seconds** |
-| Actions | Program: `wsl.exe`  ·  Arguments: `-d Ubuntu -- sleep infinity` |
+| Actions | Program: `wscript.exe`  ·  Arguments: `"C:\Users\<nama>\.hermes\hermes-hold.vbs"` |
 | Conditions | hilangkan centang *Start only if on AC power* |
 | Settings | centang *restart every 1 minute, up to 3 times* |
 
-Task ini **sengaja berjalan terus** dan tidak pernah selesai. Itulah gunanya:
-WSL2 mematikan VM yang menganggur ketika tidak ada sesi aktif yang menahannya, dan
-`sleep infinity` adalah sesi penahan itu. Karena itu pastikan di tab *Settings* centang
-**"Stop the task if it runs longer than"** dalam keadaan **mati**.
+`hermes-hold.vbs` berisi satu baris:
+
+```vbs
+CreateObject("WScript.Shell").Run "wsl.exe -d Ubuntu -- sleep infinity", 0, False
+```
+
+Argumen `0` menyembunyikan jendela konsol, `False` berarti tidak menunggu selesai. Jadi
+VBS-nya berakhir seketika sementara `wsl.exe` tetap hidup di latar sebagai **penahan VM**.
+
+Karena itu **`State` task akan kembali `Ready` dalam sedetik, dan itu benar** — penahannya
+ada di dalam WSL, bukan pada proses Windows yang harus terus hidup.
+
+Menjalankan `wsl.exe -- sleep infinity` langsung dari Actions juga bekerja, tetapi
+meninggalkan jendela konsol terbuka sepanjang sesi. Pembungkus VBS ini menghilangkannya.
+
+Karena task selesai seketika, opsi *restart on failure* jadi tidak berguna. Sebagai
+pengaman, tambahkan trigger kedua: *Daily*, ulangi setiap 1 jam. Menjalankan VBS saat
+penahan sudah hidup tidak berbahaya — hanya satu proses menganggur beberapa KB.
 
 > **Jangan pakai `-- /bin/true` atau perintah sekali jalan lain.** Perintah itu langsung
 > selesai, VM kembali menganggur, dan beberapa menit kemudian Windows mematikannya —
@@ -474,12 +525,21 @@ pertama, berarti ada yang masih mematikannya.
 Sebagai pengaman tambahan, bisa juga dibuat `%USERPROFILE%\.wslconfig`:
 
 ```ini
-[experimental]
+[wsl2]
 vmIdleTimeout=-1
 ```
 
-lalu `wsl --shutdown` sekali agar terbaca. Nama seksi untuk kunci ini pernah berubah antar
-versi WSL, jadi perlakukan sebagai pelengkap, bukan pengganti sesi penahan di atas.
+lalu `wsl --shutdown` sekali agar terbaca.
+
+> Perlakukan ini **hanya sebagai pelengkap**. Kunci `vmIdleTimeout` dilaporkan tidak
+> konsisten antar versi Windows dan pada banyak sistem tidak berpengaruh sama sekali.
+> Yang benar-benar menentukan adalah proses penahan (`sleep infinity`).
+
+Penyebab dasarnya: WSL2 mematikan VM sekitar **satu menit setelah sesi terakhir ditutup**.
+Itu perilaku bawaan. Setiap perintah sekali jalan seperti
+`wsl -d Ubuntu -- <perintah>` membuka sesi lalu menutupnya, sehingga tanpa proses penahan
+VM akan mati semenit kemudian dan gateway ikut berhenti — memunculkan pesan
+"Gateway shutting down" di Telegram.
 
 ### 7.3 Verifikasi — *PowerShell*
 
