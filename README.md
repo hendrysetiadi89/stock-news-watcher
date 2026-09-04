@@ -118,7 +118,7 @@ date
 ```
 
 Harus menunjukkan WIB. **Jangan dilewat** — Ubuntu default memakai UTC, dan jadwal
-`8-16` akan berjalan pukul 15.00–23.55 WIB.
+jadwal berjam akan meleset 7 jam dari yang Anda maksud.
 
 ### 3.4 Autentikasi Nous Portal — *Ubuntu*
 
@@ -401,7 +401,7 @@ tersebut — tanda hidup. Kalau angkanya anjlok drastis, ada sumber yang bermasa
 ### 6.1 Membuat jadwal — *Ubuntu*
 
 ```bash
-hermes cron create "*/5 8-16 * * 1-5" \
+hermes cron create "*/2 * * * *" \
   --no-agent \
   --script stock-news.sh \
   --deliver telegram \
@@ -409,9 +409,31 @@ hermes cron create "*/5 8-16 * * 1-5" \
 ```
 
 Format jadwal adalah cron 5 kolom: `menit jam tanggal bulan hari`.
-`*/5 8-16 * * 1-5` berarti tiap 5 menit, pukul 8 sampai 16, Senin–Jumat.
+`*/2 * * * *` berarti tiap 2 menit, sepanjang hari, setiap hari — tanpa filter jam
+maupun hari.
 
-> `8-16` berjalan sampai pukul **16.55**, karena jam 16 dihitung satu jam penuh.
+Kalau ingin membatasi, kolomnya adalah `menit jam tanggal bulan hari`:
+
+| Ekspresi | Arti |
+|---|---|
+| `*/2 * * * *` | tiap 2 menit, tanpa batas (dipakai sekarang) |
+| `*/2 * * * 1-5` | tiap 2 menit, hanya Senin–Jumat |
+| `*/5 8-18 * * 1-5` | tiap 5 menit, 08.00–18.59, hari kerja |
+| `0 9 * * 1-5` | sekali sehari pukul 9 pagi, hari kerja |
+
+> **Batas jam bersifat inklusif.** Kalau nanti Anda memakai filter jam, `8-18` mencakup
+> seluruh jam 18 — tick terakhir pukul 18.59, bukan 18.00.
+
+> **Beban pada sumber.** Interval 2 menit berarti ~720 run per hari, masing-masing memanggil
+> IDX dan IDN Financials. IDX diketahui membatasi laju dan sesekali membalas 403. Mekanisme
+> coba-ulang menanganinya dan dedup mencegah berita hilang, tetapi pantau log beberapa hari:
+>
+> ```bash
+> grep -c "GAGAL fetch" ~/.hermes/logs/stock-news-watcher.log
+> grep "tertinggal" ~/.hermes/logs/stock-news-watcher.log | tail -20
+> ```
+>
+> Kalau kegagalan menjadi terus-menerus dan bukan sesekali, longgarkan ke `*/5`.
 
 Contoh jadwal lain:
 
@@ -428,7 +450,7 @@ hermes cron list
 hermes cron run <job_id>       # jalankan sekarang, tanpa menunggu jadwal
 hermes cron pause <job_id>
 hermes cron resume <job_id>
-hermes cron edit <job_id> --schedule "*/10 8-16 * * 1-5"
+hermes cron edit <job_id> --schedule "*/5 * * * *"
 hermes cron remove <job_id>
 ```
 
