@@ -1,0 +1,15 @@
+# Data lokal & rahasia — jangan pernah masuk repo
+seen.db
+seen.db.*
+config.json
+.env
+*.log
+*.bak
+*.hold
+
+# Artefak & sisa debugging
+__pycache__/
+*.py[cod]
+idx_sample.html
+keywords.txt
+SETUP.md

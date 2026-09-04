@@ -1,0 +1,159 @@
+{
+  "_readme": [
+    "Atur apa yang dipantau di sini. Ubah 'enabled' jadi true/false.",
+    "Bisa juga lewat CLI: --list, --enable-source X, --disable-source X,",
+    "--enable-topic Y, --disable-topic Y.",
+    "TOPIK: kalau SEMUA topik dimatikan, semua berita lolos (tanpa filter).",
+    "Kalau ada minimal satu topik aktif, berita harus cocok >=1 kata kunci",
+    "dari topik aktif tsb, ATAU menyebut salah satu kode di options.tickers.",
+    "PER SUMBER: field 'topics' pada sebuah sumber membatasi topik mana yang",
+    "berlaku untuk sumber itu saja. Kosong / tidak ada = semua topik aktif berlaku.",
+    "idx_disclosure dibatasi ke aksi_korporasi + kinerja_keuangan karena IDX",
+    "mengirim puluhan pengumuman rutin per hari (Pencatatan Saham, Laporan Bulanan)."
+  ],
+  "sources": {
+    "pasardana": {
+      "enabled": true,
+      "label": "Pasar Dana"
+    },
+    "idnfinancials": {
+      "enabled": true,
+      "label": "IDN Financials"
+    },
+    "kontan_insight": {
+      "enabled": true,
+      "label": "Kontan Insight"
+    },
+    "kabarbursa": {
+      "enabled": true,
+      "label": "Kabar Bursa"
+    },
+    "idx_disclosure": {
+      "enabled": true,
+      "label": "IDX Keterbukaan Informasi",
+      "topics": [
+        "aksi_korporasi",
+        "kinerja_keuangan"
+      ]
+    }
+  },
+  "topics": {
+    "ihsg_dan_pasar": {
+      "enabled": true,
+      "keywords": [
+        "ihsg",
+        "indeks",
+        "bursa",
+        "idx",
+        "jci",
+        "market",
+        "pasar saham",
+        "saham",
+        "emiten",
+        "perdagangan",
+        "auto reject",
+        "suspensi"
+      ]
+    },
+    "aksi_korporasi": {
+      "enabled": true,
+      "keywords": [
+        "rups",
+        "dividen",
+        "ipo",
+        "right issue",
+        "hmetd",
+        "buyback",
+        "pembelian kembali",
+        "stock split",
+        "akuisisi",
+        "merger",
+        "penggabungan",
+        "tender offer",
+        "private placement",
+        "delisting",
+        "public expose",
+        "obligasi",
+        "sukuk"
+      ]
+    },
+    "kinerja_keuangan": {
+      "enabled": true,
+      "keywords": [
+        "laba",
+        "rugi",
+        "pendapatan",
+        "kinerja",
+        "laporan keuangan",
+        "revenue",
+        "profit",
+        "earnings",
+        "margin",
+        "ebitda"
+      ]
+    },
+    "aliran_dana_asing": {
+      "enabled": true,
+      "keywords": [
+        "asing",
+        "foreign",
+        "net buy",
+        "net sell",
+        "inflow",
+        "outflow",
+        "top buy",
+        "top sell"
+      ]
+    },
+    "makro_dan_moneter": {
+      "enabled": true,
+      "keywords": [
+        "rupiah",
+        "inflasi",
+        "bi rate",
+        "suku bunga",
+        "bank indonesia",
+        "the fed",
+        "ojk",
+        "apbn",
+        "pdb",
+        "gdp"
+      ]
+    },
+    "komoditas": {
+      "enabled": false,
+      "keywords": [
+        "emas",
+        "batu bara",
+        "batubara",
+        "cpo",
+        "sawit",
+        "minyak",
+        "nikel",
+        "timah",
+        "tembaga",
+        "gas"
+      ]
+    },
+    "global": {
+      "enabled": false,
+      "keywords": [
+        "wall street",
+        "dow jones",
+        "nasdaq",
+        "s&p",
+        "hang seng",
+        "nikkei",
+        "china",
+        "amerika"
+      ]
+    }
+  },
+  "options": {
+    "pasardana_days": 2,
+    "idx_page_size": 100,
+    "max_per_run": 15,
+    "tickers": [],
+    "_tickers_note": "Isi mis. [\"BBCA\",\"TLKM\"] untuk selalu meloloskan berita yang menyebut kode ini."
+  }
+}
