@@ -593,6 +593,67 @@ def send_telegram(items, max_send):
     return sent
 
 
+def send_startup_notice(con, mode, cfg, watched):
+    """
+    mode:
+      'once'  = sekali seumur seen.db
+      'daily' = sekali tiap hari kalender
+      angka   = kirim bila jeda sejak run terakhir melebihi sekian menit.
+                Dalam mode --no-agent tidak ada proses job yang hidup terus (tiap tick
+                adalah proses baru), jadi "job menyala lagi" dideteksi dari jeda ini:
+                gateway restart, WSL reboot, laptop tidur, atau jendela cron baru dibuka.
+    """
+    if not mode:
+        return False
+    today = datetime.now(WIB).strftime("%Y-%m-%d")
+    prev = get_state(con, "startup_notice")
+    alasan = ""
+
+    if mode == "once":
+        if prev:
+            return False
+        alasan = "pemasangan pertama"
+    elif mode == "daily":
+        if prev == today:
+            return False
+        alasan = "hari baru"
+    else:
+        try:
+            gap_min = int(mode)
+        except ValueError:
+            log(f"--startup-notice '{mode}' tidak valid (pakai 'once', 'daily', atau angka menit)")
+            return False
+        last_run = float(get_state(con, "last_run_ts", 0) or 0)
+        if not last_run:
+            alasan = "pertama kali dijalankan"
+        else:
+            jeda = (time.time() - last_run) / 60
+            if jeda < gap_min:
+                return False
+            alasan = (f"aktif kembali setelah jeda {jeda / 60:.1f} jam"
+                      if jeda >= 90 else f"aktif kembali setelah jeda {jeda:.0f} menit")
+
+    token, chat = tg_creds()
+    if not token:
+        return False
+    aktif = [v.get("label", k) for k, v in cfg["sources"].items() if v.get("enabled")]
+    topik = [k for k, v in cfg["topics"].items() if v.get("enabled")]
+    jam = datetime.now(WIB).strftime("%H:%M")
+    text = (f"\u2705 <b>Radar saham aktif</b>\n"
+            f"<i>{jam} WIB · {watched} item dipantau · {htmllib.escape(alasan)}</i>\n\n"
+            f"<b>Sumber</b> ({len(aktif)}): {htmllib.escape(', '.join(aktif)) or '-'}\n"
+            f"<b>Topik</b> ({len(topik)}): {htmllib.escape(', '.join(topik)) or 'tanpa filter'}")
+    try:
+        tg_post(token, chat, text)
+        set_state(con, "startup_notice", today)
+        set_state(con, "last_message_ts", time.time())
+        log(f"notice 'radar aktif' terkirim (mode {mode})")
+        return True
+    except Exception as e:
+        log(f"Gagal kirim notice aktif: {e}")
+        return False
+
+
 def send_empty_notice(con, mode, watched):
     """mode: 'always' = tiap tick; angka = hanya bila sudah sekian menit hening."""
     if not mode:
@@ -640,6 +701,9 @@ def main():
     ap.add_argument("--limit", type=int, default=None, help="maks item per run (default dari config)")
     ap.add_argument("--empty-notice", metavar="MODE", default=None,
                     help="kirim 'tidak ada berita baru' saat kosong: 'always' atau jumlah menit hening")
+    ap.add_argument("--startup-notice", metavar="MODE", default=None,
+                    help="kirim 'radar saham aktif': 'once', 'daily', atau jumlah menit jeda "
+                         "yang dianggap sebagai job menyala lagi (mis. 15)")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -681,6 +745,8 @@ def main():
         mark_seen(con, items)   # semua ditandai, termasuk yang tersaring topik
 
     if args.telegram:
+        # Diumumkan sebelum berita, supaya urutan di chat masuk akal saat run pertama.
+        send_startup_notice(con, args.startup_notice, cfg, len(items))
         if relevant:
             sent = send_telegram(relevant, limit)
             if sent:
@@ -689,6 +755,8 @@ def main():
         else:
             notice = send_empty_notice(con, args.empty_notice, len(items))
             print(json.dumps({"new_count": 0, "sent": 0, "notice": notice}, ensure_ascii=False))
+        # Dicatat paling akhir: dipakai run berikutnya untuk mengukur jeda.
+        set_state(con, "last_run_ts", time.time())
         return 0
 
     print(json.dumps({"new_count": len(relevant), "items": relevant[:limit]},
