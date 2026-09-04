@@ -401,7 +401,7 @@ tersebut — tanda hidup. Kalau angkanya anjlok drastis, ada sumber yang bermasa
 ### 6.1 Membuat jadwal — *Ubuntu*
 
 ```bash
-hermes cron create "*/2 * * * *" \
+hermes cron create "*/2 8-18 * * 1-5" \
   --no-agent \
   --script stock-news.sh \
   --deliver telegram \
@@ -409,22 +409,35 @@ hermes cron create "*/2 * * * *" \
 ```
 
 Format jadwal adalah cron 5 kolom: `menit jam tanggal bulan hari`.
-`*/2 * * * *` berarti tiap 2 menit, sepanjang hari, setiap hari — tanpa filter jam
-maupun hari.
-
-Kalau ingin membatasi, kolomnya adalah `menit jam tanggal bulan hari`:
+Kolomnya adalah `menit jam tanggal bulan hari`. `*/2 8-18 * * 1-5` berarti tiap 2 menit,
+pukul 08.00–18.59, Senin–Jumat — sekitar 330 run per hari kerja, nol di akhir pekan.
 
 | Ekspresi | Arti |
 |---|---|
-| `*/2 * * * *` | tiap 2 menit, tanpa batas (dipakai sekarang) |
-| `*/2 * * * 1-5` | tiap 2 menit, hanya Senin–Jumat |
-| `*/5 8-18 * * 1-5` | tiap 5 menit, 08.00–18.59, hari kerja |
+| `*/2 8-18 * * 1-5` | tiap 2 menit, 08.00–18.59, hari kerja (dipakai sekarang) |
+| `*/2 * * * *` | tiap 2 menit, tanpa batas jam maupun hari |
+| `*/5 8-18 * * 1-5` | tiap 5 menit, jendela yang sama — kalau IDX mulai sering menolak |
 | `0 9 * * 1-5` | sekali sehari pukul 9 pagi, hari kerja |
+
+Setelah mengubah jadwal, `hermes cron list` akan menunjukkan `Next run` melompat ke pukul
+08.00 hari kerja berikutnya bila saat itu di luar jendela. Lompatan itu bukti terbaik bahwa
+filternya terbaca benar.
+
+**Konsekuensi yang perlu diingat saat memeriksa kesehatan sistem:** di luar jam kerja, log
+memang berhenti bertambah. `log terakhir` yang tertinggal jauh pada malam hari atau akhir
+pekan adalah hal normal, bukan tanda kerusakan — periksa `Next run` sebagai gantinya.
+
+Pengumuman IDX yang terbit malam hari (ada, kadang sampai pukul 21.30) baru terkirim pada
+tick pertama pukul 08.00 keesokan harinya. Tidak hilang — dedup berbasis URL dan jendela
+100 item mencakup sekitar 19 jam — hanya tertunda.
+
+Pesan "Radar saham aktif" tetap datang kapan pun gateway menyala, karena pemicunya hook
+systemd, bukan cron.
 
 > **Batas jam bersifat inklusif.** Kalau nanti Anda memakai filter jam, `8-18` mencakup
 > seluruh jam 18 — tick terakhir pukul 18.59, bukan 18.00.
 
-> **Beban pada sumber.** Interval 2 menit berarti ~720 run per hari, masing-masing memanggil
+> **Beban pada sumber.** Interval 2 menit dalam jendela jam kerja berarti ~330 run per hari kerja, masing-masing memanggil
 > IDX dan IDN Financials. IDX diketahui membatasi laju dan sesekali membalas 403. Mekanisme
 > coba-ulang menanganinya dan dedup mencegah berita hilang, tetapi pantau log beberapa hari:
 >
