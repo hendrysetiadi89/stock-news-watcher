@@ -1,5 +1,6 @@
 # Data lokal & rahasia — jangan pernah masuk repo
 seen.db
+cookies.txt
 seen.db.*
 config.json
 .env

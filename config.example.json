@@ -153,6 +153,8 @@
     "pasardana_days": 2,
     "idx_page_size": 100,
     "max_per_run": 15,
+    "fail_alert_after": 3,
+    "_fail_alert_note": "Alert error ke Telegram baru dikirim setelah SEMUA sumber gagal sebanyak ini berturut-turut. 1 = laporkan tiap kegagalan.",
     "tickers": [],
     "_tickers_note": "Isi mis. [\"BBCA\",\"TLKM\"] untuk selalu meloloskan berita yang menyebut kode ini."
   }

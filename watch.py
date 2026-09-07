@@ -15,7 +15,7 @@ Pemakaian:
   python watch.py --telegram                 # kirim berita baru langsung ke Telegram
   python watch.py --dry-run                  # lihat hasil tanpa menandai sudah dibaca
 """
-import argparse, html as htmllib, json, os, re, sqlite3, sys, time
+import argparse, html as htmllib, http.cookiejar, json, os, re, sqlite3, sys, time
 import urllib.request, urllib.error
 from datetime import datetime, timedelta, timezone
 from xml.etree import ElementTree as ET
@@ -23,6 +23,7 @@ from xml.etree import ElementTree as ET
 BASE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE, "seen.db")
 CONFIG_PATH = os.path.join(BASE, "config.json")
+COOKIE_PATH = os.path.join(BASE, "cookies.txt")
 ENV_PATH = os.path.join(os.path.expanduser("~"), ".hermes", ".env")
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
 WIB = timezone(timedelta(hours=7))
@@ -102,6 +103,8 @@ DEFAULT_CONFIG = {
         "pasardana_days": 2,
         "idx_page_size": 100,
         "max_per_run": 15,
+        "fail_alert_after": 3,
+        "_fail_alert_note": "Alert error ke Telegram baru dikirim setelah SEMUA sumber gagal sebanyak ini berturut-turut. 1 = laporkan tiap kegagalan.",
         "tickers": [],
         "_tickers_note": "Isi mis. [\"BBCA\",\"TLKM\"] untuk selalu meloloskan berita yang menyebut kode ini.",
     },
@@ -184,6 +187,17 @@ def log(msg):
 RETRY_DELAYS = (3, 8)
 RETRY_CODES = {403, 429, 500, 502, 503, 504}
 
+# Cloudflare menerbitkan cookie __cf_bm (berlaku 30 menit) pada respons yang lolos.
+# Klien yang mengembalikannya dinilai murah pada permintaan berikutnya; yang tidak,
+# dinilai ulang dari nol setiap kali -- sebagian dari penilaian itu berakhir 403.
+# Cookie disimpan ke berkas supaya bertahan antar-run cron, bukan hanya dalam satu proses.
+_jar = http.cookiejar.MozillaCookieJar(COOKIE_PATH)
+try:
+    _jar.load(ignore_discard=True, ignore_expires=True)
+except (OSError, http.cookiejar.LoadError):
+    pass
+_opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_jar))
+
 
 def fetch(url, timeout=30, json_mode=False, referer=None, label=""):
     headers = {
@@ -200,8 +214,12 @@ def fetch(url, timeout=30, json_mode=False, referer=None, label=""):
     last = None
     for attempt in range(len(RETRY_DELAYS) + 1):
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with _opener.open(req, timeout=timeout) as r:
                 raw = r.read()
+            try:
+                _jar.save(ignore_discard=True)
+            except OSError:
+                pass
             if attempt:
                 log(f"{label}: berhasil pada percobaan ke-{attempt + 1}")
             for enc in ("utf-8", "iso-8859-1"):
@@ -738,13 +756,28 @@ def main():
     limit = args.limit if args.limit is not None else int(cfg["options"].get("max_per_run", 15))
 
     items = collect(cfg)
+    con = db()
+
+    # Kegagalan sesaat -- terutama 403 rate-limit dari IDX -- tidak langsung dilaporkan.
+    # Hermes mengirim alert error ketika script keluar dengan kode bukan nol, jadi kode 1
+    # baru dikembalikan setelah kegagalan berturut-turut mencapai options.fail_alert_after.
+    # Hitungannya disimpan di tabel state dan direset oleh run pertama yang berhasil.
+    ambang = max(1, int(cfg["options"].get("fail_alert_after", 3)))
     if not items:
-        print(json.dumps({"new_count": 0, "items": [],
+        n = int(get_state(con, "consecutive_fail", 0) or 0) + 1
+        set_state(con, "consecutive_fail", n)
+        lapor = n >= ambang
+        log(f"semua sumber gagal — kegagalan berturut-turut ke-{n} (ambang {ambang})"
+            + ("" if lapor else ", belum dilaporkan"))
+        print(json.dumps({"new_count": 0, "items": [], "consecutive_fail": n,
+                          "reported": lapor,
                           "error": "tidak ada item terkumpul (semua sumber gagal atau nonaktif)"},
                          ensure_ascii=False))
-        return 1
+        return 1 if lapor else 0
 
-    con = db()
+    if (get_state(con, "consecutive_fail", "0") or "0") != "0":
+        log("sumber pulih — hitungan kegagalan berturut-turut direset")
+        set_state(con, "consecutive_fail", 0)
     fresh = filter_new(con, items)
     relevant = apply_filter(fresh, cfg)
 
