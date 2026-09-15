@@ -15,7 +15,7 @@ Pemakaian:
   python watch.py --telegram                 # kirim berita baru langsung ke Telegram
   python watch.py --dry-run                  # lihat hasil tanpa menandai sudah dibaca
 """
-import argparse, html as htmllib, http.cookiejar, json, os, re, sqlite3, sys, time
+import argparse, html as htmllib, json, os, re, sqlite3, sys, time
 import urllib.request, urllib.error
 from datetime import datetime, timedelta, timezone
 from xml.etree import ElementTree as ET
@@ -23,7 +23,6 @@ from xml.etree import ElementTree as ET
 BASE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE, "seen.db")
 CONFIG_PATH = os.path.join(BASE, "config.json")
-COOKIE_PATH = os.path.join(BASE, "cookies.txt")
 ENV_PATH = os.path.join(os.path.expanduser("~"), ".hermes", ".env")
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
 WIB = timezone(timedelta(hours=7))
@@ -191,12 +190,11 @@ RETRY_CODES = {403, 429, 500, 502, 503, 504}
 # Klien yang mengembalikannya dinilai murah pada permintaan berikutnya; yang tidak,
 # dinilai ulang dari nol setiap kali -- sebagian dari penilaian itu berakhir 403.
 # Cookie disimpan ke berkas supaya bertahan antar-run cron, bukan hanya dalam satu proses.
-_jar = http.cookiejar.MozillaCookieJar(COOKIE_PATH)
-try:
-    _jar.load(ignore_discard=True, ignore_expires=True)
-except (OSError, http.cookiejar.LoadError):
-    pass
-_opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_jar))
+# JANGAN menyimpan dan mengirim ulang cookie Cloudflare. Pernah dicoba, dan hasilnya
+# kebalikan dari dugaan: _cfuvid yang ikut tersimpan tidak punya masa kedaluwarsa,
+# sehingga semua permintaan terikat pada satu identitas pengunjung. Kegagalan menumpuk
+# di identitas itu dan berujung 403 selama berjam-jam, sementara browser di mesin yang
+# sama tetap mendapat 200. Tanpa cookie, tiap permintaan dinilai segar.
 
 
 def fetch(url, timeout=30, json_mode=False, referer=None, label=""):
@@ -214,12 +212,8 @@ def fetch(url, timeout=30, json_mode=False, referer=None, label=""):
     last = None
     for attempt in range(len(RETRY_DELAYS) + 1):
         try:
-            with _opener.open(req, timeout=timeout) as r:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 raw = r.read()
-            try:
-                _jar.save(ignore_discard=True)
-            except OSError:
-                pass
             if attempt:
                 log(f"{label}: berhasil pada percobaan ke-{attempt + 1}")
             for enc in ("utf-8", "iso-8859-1"):
