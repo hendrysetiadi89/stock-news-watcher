@@ -50,15 +50,6 @@ KSEI_DIVIDEND_URL = KSEI_BASE + "/publications/corporate-action-schedules/cash-d
 TR_RE = re.compile(r"<tr\b[^>]*>(.*?)</tr>", re.I | re.S)
 TD_RE = re.compile(r"<td\b[^>]*>(.*?)</td>", re.I | re.S)
 KSEI_TICKER_RE = re.compile(r"\(([A-Z0-9]{4})\)")
-
-# Indeks Berita KSEI & Reminder CA. Pakai /browse langsung -- /ksei_news hanya
-# me-redirect ke sana, dan klien tanpa follow-redirect akan menerima badan kosong.
-KSEI_NEWS_URL = KSEI_BASE + "/ksei_news/browse"
-LI_RE = re.compile(r"<li\b[^>]*>(.*?)</li>", re.I | re.S)
-KSEI_READ_RE = re.compile(r'href="(/ksei_news/read/[^"]+)"', re.I)
-KSEI_ANCHOR_RE = re.compile(r'href="/ksei_news/read/[^"]+"[^>]*>(.*?)</a>', re.I | re.S)
-KSEI_KEEP_RE = re.compile(r"cum date|recording date", re.I)
-BUKAN_TICKER = {"KSEI", "BEST"}
 # Endpoint yang dipakai halaman keterbukaan informasi. JANGAN tambahkan parameter
 # dateFrom/dateTo/keyword/emitenType -- server membalas 503 kalau ada.
 # Endpoint lama /primary/ListedCompany/GetAnnouncement TIDAK dipakai lagi: datanya
@@ -91,8 +82,6 @@ DEFAULT_CONFIG = {
                            "topics": ["aksi_korporasi", "kinerja_keuangan"]},
         "ksei_dividend":  {"enabled": True, "label": "KSEI Dividen",
                            "topics": ["dividen"]},
-        "ksei_news":      {"enabled": True, "label": "KSEI Reminder CA",
-                           "topics": ["jadwal_ca"]},
     },
     "topics": {
         "ihsg_dan_pasar": {"enabled": True, "keywords": [
@@ -112,7 +101,6 @@ DEFAULT_CONFIG = {
         "makro_dan_moneter": {"enabled": True, "keywords": [
             "rupiah", "inflasi", "bi rate", "suku bunga", "bank indonesia",
             "the fed", "ojk", "apbn", "pdb", "gdp"]},
-        "jadwal_ca": {"enabled": True, "keywords": ["cum date", "recording date"]},
         "komoditas": {"enabled": False, "keywords": [
             "emas", "batu bara", "batubara", "cpo", "sawit", "minyak", "nikel",
             "timah", "tembaga", "gas"]},
@@ -432,40 +420,6 @@ def parse_ksei(page, label):
     return items
 
 
-def parse_ksei_news(page, label):
-    """
-    Indeks Berita KSEI. Tiap entri:
-      <li><div class="box box--compact">
-        <time><small>18 September 2026</small></time>
-        <a href="/ksei_news/read/18091/..."><b>Reminder Corporate Action Cum Date : TEBE</b></a>
-        <p>ringkasan</p>
-      </div></li>
-
-    Hanya entri "Cum Date" / "Recording Date" yang diambil; sisanya pengumuman
-    C-BEST rutin harian. Kode saham diambil dengan \b[A-Z]{4}\b sehingga kode
-    obligasi seperti BUMI01ACN2 atau WSKT03A tidak ikut terbaca.
-    """
-    items = []
-    for m in LI_RE.finditer(page):
-        blok = m.group(1)
-        if "/ksei_news/read/" not in blok:
-            continue
-        hm = KSEI_READ_RE.search(blok)
-        am = KSEI_ANCHOR_RE.search(blok)
-        if not hm or not am:
-            continue
-        judul = clean(am.group(1))
-        if not judul or not KSEI_KEEP_RE.search(judul):
-            continue
-        t = TIME_RE.search(blok)
-        tickers = sorted(set(re.findall(r"\b[A-Z]{4}\b", judul)) - BUKAN_TICKER)
-        items.append({"title": (f"[{'/'.join(tickers)}] " if tickers else "") + judul,
-                      "url": KSEI_BASE + htmllib.unescape(hm.group(1)),
-                      "published": clean(t.group(1)) if t else "",
-                      "category": "", "source": label, "tickers": tickers})
-    return items
-
-
 # ---------------------------------------------------------------- sources
 
 def source_requests(cfg):
@@ -496,15 +450,12 @@ def source_requests(cfg):
     if on("ksei_dividend"):
         out.append(("ksei_dividend", src["ksei_dividend"]["label"], "ksei",
                     KSEI_DIVIDEND_URL, None))
-    if on("ksei_news"):
-        out.append(("ksei_news", src["ksei_news"]["label"], "ksei_news",
-                    KSEI_NEWS_URL, None))
     return out
 
 
 PARSERS = {"rss": parse_rss, "pasardana": parse_pasardana,
            "idnfinancials": parse_idnfinancials, "idx": parse_idx,
-           "ksei": parse_ksei, "ksei_news": parse_ksei_news}
+           "ksei": parse_ksei}
 
 
 def collect(cfg):
