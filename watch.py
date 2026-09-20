@@ -42,6 +42,14 @@ PASARDANA_HREF_RE = re.compile(r"^/news/\d{4}/\d{1,2}/\d{1,2}/[^\s\"#?]+$")
 IDN_HREF_RE = re.compile(r"^https://www\.idnfinancials\.com/news/\d+/[^\s\"#?]+$")
 
 IDX_PAGE = "https://www.idx.co.id/id/perusahaan-tercatat/keterbukaan-informasi"
+
+# KSEI — administrator pembagian dividen. Halaman server-rendered, melayani klien
+# non-browser (berbeda dari IDX). Tabel: nomor surat (menaut PDF) | perihal | tanggal.
+KSEI_BASE = "https://web.ksei.co.id"
+KSEI_DIVIDEND_URL = KSEI_BASE + "/publications/corporate-action-schedules/cash-dividend"
+TR_RE = re.compile(r"<tr\b[^>]*>(.*?)</tr>", re.I | re.S)
+TD_RE = re.compile(r"<td\b[^>]*>(.*?)</td>", re.I | re.S)
+KSEI_TICKER_RE = re.compile(r"\(([A-Z0-9]{4})\)")
 # Endpoint yang dipakai halaman keterbukaan informasi. JANGAN tambahkan parameter
 # dateFrom/dateTo/keyword/emitenType -- server membalas 503 kalau ada.
 # Endpoint lama /primary/ListedCompany/GetAnnouncement TIDAK dipakai lagi: datanya
@@ -72,6 +80,8 @@ DEFAULT_CONFIG = {
         "kabarbursa":     {"enabled": True, "label": "Kabar Bursa"},
         "idx_disclosure": {"enabled": True, "label": "IDX Keterbukaan Informasi",
                            "topics": ["aksi_korporasi", "kinerja_keuangan"]},
+        "ksei_dividend":  {"enabled": True, "label": "KSEI Dividen",
+                           "topics": ["dividen"]},
     },
     "topics": {
         "ihsg_dan_pasar": {"enabled": True, "keywords": [
@@ -378,6 +388,38 @@ def parse_idx(page, label):
     return items
 
 
+def parse_ksei(page, label):
+    """
+    Tabel jadwal dividen KSEI. Satu <tr> = satu pengumuman:
+      <td><a href="/Announcement/Files/IFII_DIV_20260930_ID.pdf">KSEI-23685/JKU/0926</a></td>
+      <td>Jadwal Pelaksanaan Pembagian Deviden Interim atas Efek ... Tbk (IFII).</td>
+      <td>18 September 2026</td>
+
+    PENTING: KSEI mengeja "Deviden", bukan "dividen", sehingga kata kunci topik tidak
+    cocok dengan judulnya. Karena setiap baris di halaman ini memang pengumuman dividen,
+    kategori diisi "dividen" -- itulah yang dicocokkan penyaring topik.
+    """
+    items = []
+    for m in TR_RE.finditer(page):
+        row = m.group(1)
+        if ".pdf" not in row.lower():
+            continue
+        tds = [clean(t.group(1)) for t in TD_RE.finditer(row)]
+        hm = HREF_RE.search(row)
+        if not hm or len(tds) < 3:
+            continue
+        href = htmllib.unescape(hm.group(1))
+        url = href if href.startswith("http") else KSEI_BASE + href
+        perihal, tanggal = tds[1], tds[2]
+        tm = KSEI_TICKER_RE.search(perihal)
+        kode = tm.group(1) if tm else href.rsplit("/", 1)[-1].split("_")[0].upper()
+        tickers = [kode] if re.fullmatch(r"[A-Z0-9]{4}", kode or "") else []
+        title = (f"[{kode}] " if tickers else "") + perihal.rstrip(". ")
+        items.append({"title": title, "url": url, "published": tanggal,
+                      "category": "dividen", "source": label, "tickers": tickers})
+    return items
+
+
 # ---------------------------------------------------------------- sources
 
 def source_requests(cfg):
@@ -405,11 +447,15 @@ def source_requests(cfg):
     if on("idx_disclosure"):
         out.append(("idx_disclosure", src["idx_disclosure"]["label"], "idx",
                     IDX_API.format(size=int(opt.get("idx_page_size", 50))), IDX_PAGE))
+    if on("ksei_dividend"):
+        out.append(("ksei_dividend", src["ksei_dividend"]["label"], "ksei",
+                    KSEI_DIVIDEND_URL, None))
     return out
 
 
 PARSERS = {"rss": parse_rss, "pasardana": parse_pasardana,
-           "idnfinancials": parse_idnfinancials, "idx": parse_idx}
+           "idnfinancials": parse_idnfinancials, "idx": parse_idx,
+           "ksei": parse_ksei}
 
 
 def collect(cfg):
