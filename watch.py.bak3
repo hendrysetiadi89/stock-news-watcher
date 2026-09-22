@@ -59,20 +59,6 @@ KSEI_READ_RE = re.compile(r'href="(/ksei_news/read/[^"]+)"', re.I)
 KSEI_ANCHOR_RE = re.compile(r'href="/ksei_news/read/[^"]+"[^>]*>(.*?)</a>', re.I | re.S)
 KSEI_KEEP_RE = re.compile(r"cum date|recording date", re.I)
 BUKAN_TICKER = {"KSEI", "BEST"}
-
-# EmitenNews -- memberitakan keputusan dividen/aksi korporasi hari itu juga,
-# jauh sebelum KSEI menerbitkan jadwal pelaksanaannya. Tidak punya RSS
-# (/rss dan /feed membalas 500), jadi halaman depan di-scrape.
-# Tiap anchor artikel membawa judul bersih di data-attr="{'news_title': '...'}".
-# Label "Update News"/"Trending News" ada di dalam KOMENTAR HTML -- tanpa
-# COMMENT_RE, pembersih tag biasa meninggalkan sisa "-->" di judul.
-EN_BASE = "https://emitennews.com"
-EN_URL = EN_BASE + "/"
-EN_HREF_RE = re.compile(r'^(?:https?://(?:www\.)?emitennews\.com)?(/news/[^\s"#?]+)$', re.I)
-EN_TITLE_ATTR_RE = re.compile(r"'news_title'\s*:\s*'(.+?)'\s*}", re.S)
-EN_P_RE = re.compile(r'<p\b[^>]*class="[^"]*news-list[^"]*"[^>]*>(.*?)</p>', re.I | re.S)
-EN_TIME_RE = re.compile(r'<span\b[^>]*class="small"[^>]*>([^<]*yang lalu[^<]*)</span>', re.I)
-COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
 # Endpoint yang dipakai halaman keterbukaan informasi. JANGAN tambahkan parameter
 # dateFrom/dateTo/keyword/emitenType -- server membalas 503 kalau ada.
 # Endpoint lama /primary/ListedCompany/GetAnnouncement TIDAK dipakai lagi: datanya
@@ -107,8 +93,6 @@ DEFAULT_CONFIG = {
                            "topics": ["dividen"]},
         "ksei_news":      {"enabled": True, "label": "KSEI Reminder CA",
                            "topics": ["jadwal_ca"]},
-        "emitennews":     {"enabled": True, "label": "EmitenNews",
-                           "topics": ["dividen", "aksi_korporasi"]},
     },
     "topics": {
         "ihsg_dan_pasar": {"enabled": True, "keywords": [
@@ -128,7 +112,6 @@ DEFAULT_CONFIG = {
         "makro_dan_moneter": {"enabled": True, "keywords": [
             "rupiah", "inflasi", "bi rate", "suku bunga", "bank indonesia",
             "the fed", "ojk", "apbn", "pdb", "gdp"]},
-        "dividen": {"enabled": True, "keywords": ["dividen"]},
         "jadwal_ca": {"enabled": True, "keywords": ["cum date", "recording date"]},
         "komoditas": {"enabled": False, "keywords": [
             "emas", "batu bara", "batubara", "cpo", "sawit", "minyak", "nikel",
@@ -483,42 +466,6 @@ def parse_ksei_news(page, label):
     return items
 
 
-def parse_emitennews(page, label):
-    """
-    Halaman depan EmitenNews. Satu artikel bisa muncul di beberapa anchor
-    (Read More, kartu Update, kartu Trending) -- digabung berdasarkan URL.
-    Anchor iklan tidak membawa news_title, sehingga tersaring dengan sendirinya.
-    """
-    items, by_url = [], {}
-    for am in ANCHOR_RE.finditer(page):
-        attrs, inner = am.group(1), COMMENT_RE.sub(" ", am.group(2))
-        hm = HREF_RE.search(attrs)
-        if not hm:
-            continue
-        m = EN_HREF_RE.match(htmllib.unescape(hm.group(1)))
-        if not m:
-            continue
-        url = EN_BASE + m.group(1).rstrip("/")
-        ta = EN_TITLE_ATTR_RE.search(attrs)
-        title = clean(ta.group(1)) if ta else ""
-        if len(title) < 10:
-            pm = EN_P_RE.search(inner)
-            title = clean(pm.group(1)) if pm else ""
-        tm = EN_TIME_RE.search(inner)
-        published = clean(tm.group(1)) if tm else ""
-        if url in by_url:
-            if published and not by_url[url]["published"]:
-                by_url[url]["published"] = published
-            continue
-        if len(title) < 10:
-            continue
-        item = {"title": title, "url": url, "published": published,
-                "category": "", "source": label, "tickers": []}
-        by_url[url] = item
-        items.append(item)
-    return items
-
-
 # ---------------------------------------------------------------- sources
 
 def source_requests(cfg):
@@ -552,16 +499,12 @@ def source_requests(cfg):
     if on("ksei_news"):
         out.append(("ksei_news", src["ksei_news"]["label"], "ksei_news",
                     KSEI_NEWS_URL, None))
-    if on("emitennews"):
-        out.append(("emitennews", src["emitennews"]["label"], "emitennews",
-                    EN_URL, None))
     return out
 
 
 PARSERS = {"rss": parse_rss, "pasardana": parse_pasardana,
            "idnfinancials": parse_idnfinancials, "idx": parse_idx,
-           "ksei": parse_ksei, "ksei_news": parse_ksei_news,
-           "emitennews": parse_emitennews}
+           "ksei": parse_ksei, "ksei_news": parse_ksei_news}
 
 
 def collect(cfg):
