@@ -109,7 +109,6 @@ DEFAULT_CONFIG = {
                            "topics": ["jadwal_ca"]},
         "emitennews":     {"enabled": True, "label": "EmitenNews",
                            "topics": ["dividen", "aksi_korporasi"]},
-        "idxchannel":     {"enabled": True, "label": "IDX Channel"},
     },
     "topics": {
         "ihsg_dan_pasar": {"enabled": True, "keywords": [
@@ -556,11 +555,6 @@ def source_requests(cfg):
     if on("emitennews"):
         out.append(("emitennews", src["emitennews"]["label"], "emitennews",
                     EN_URL, None))
-    if on("idxchannel"):
-        # IDX Channel (MNC) -- BUKAN idx.co.id; domain terpisah, tidak terkena blokir IDX.
-        # RSS berisi semua kanal (termasuk berita umum), jadi andalkan penyaringan topik.
-        out.append(("idxchannel", src["idxchannel"]["label"], "rss",
-                    "https://www.idxchannel.com/rss", None))
     return out
 
 
